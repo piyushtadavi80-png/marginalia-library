@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Marginalia — Smart Library</title>
+<meta name="description" content="A smart online library with AI-powered book recommendations." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,500;0,600;0,700;1,500&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js" crossorigin></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,500;0,600;0,700;1,500&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&family=Courier+Prime:wght@400;700&display=swap');
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+
+.mgn { font-family: 'Source Serif 4', Georgia, serif; color: #2B2118; background: #EFE6D3; min-height: 100vh; }
+.mgn h1, .mgn h2, .mgn h3, .mgn .disp { font-family: 'Lora', Georgia, serif; }
+.mgn .mono { font-family: 'Courier Prime', monospace; letter-spacing: 0.04em; }
+
+.mgn-nav { background: #1F3A2E; color: #FBF7ED; }
+.mgn-navlink { font-family: 'Courier Prime', monospace; font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #CBD8CC; cursor: pointer; padding: 6px 10px; border-bottom: 2px solid transparent; transition: all .15s; background: none; border-top:none; border-left:none; border-right:none; }
+.mgn-navlink:hover { color: #FBF7ED; }
+.mgn-navlink.active { color: #FBF7ED; border-bottom: 2px solid #B8894A; }
+
+.mgn-card { background: #FBF7ED; border: 1px solid #D9CBA6; box-shadow: 2px 2px 0 #D9CBA6; }
+.mgn-btn { font-family: 'Courier Prime', monospace; text-transform: uppercase; letter-spacing: .06em; font-size: 12px; padding: 9px 16px; background: #1F3A2E; color: #FBF7ED; border: 1px solid #1F3A2E; cursor: pointer; transition: all .15s; }
+.mgn-btn:hover { background: #2F5240; }
+.mgn-btn:disabled { opacity: .45; cursor: not-allowed; }
+.mgn-btn.ghost { background: transparent; color: #1F3A2E; }
+.mgn-btn.ghost:hover { background: #E3D6B8; }
+.mgn-btn.brass { background: #B8894A; border-color: #B8894A; color: #2B2118; }
+.mgn-btn.brass:hover { background: #A67B3E; }
+
+.mgn-input { font-family: 'Source Serif 4', serif; padding: 9px 12px; border: 1px solid #C9AE86; background: #FBF7ED; color: #2B2118; width: 100%; }
+.mgn-input:focus { outline: 2px solid #B8894A; outline-offset: 1px; }
+
+.mgn-chip { font-family: 'Courier Prime', monospace; font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; padding: 6px 11px; border: 1px solid #7A6A3E; background: transparent; color: #4A3F26; cursor: pointer; }
+.mgn-chip.active { background: #1F3A2E; color: #FBF7ED; border-color: #1F3A2E; }
+
+.mgn-stamp { font-family: 'Courier Prime', monospace; font-size: 10.5px; letter-spacing: .06em; color: #A13D2B; border: 1.5px solid #A13D2B; padding: 2px 7px; transform: rotate(-3deg); display: inline-block; text-transform: uppercase; }
+
+.mgn-cover { aspect-ratio: 2/3; display:flex; align-items:center; justify-content:center; color: #F1E9D6; position:relative; overflow:hidden; }
+.mgn-cover::after { content:''; position:absolute; inset:0; background: linear-gradient(135deg, rgba(255,255,255,.08), rgba(0,0,0,.18)); }
+
+.mgn-scroll::-webkit-scrollbar { height: 6px; width:6px; }
+.mgn-scroll::-webkit-scrollbar-thumb { background: #C9AE86; }
+
+.mgn-progress-track { background: #E3D6B8; height: 6px; width: 100%; }
+.mgn-progress-fill { background: #B8894A; height: 6px; transition: width .3s; }
+
+@media (max-width: 640px) {
+  .mgn-hide-sm { display: none; }
+}
+
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useMemo, useEffect } = React;
+
+/* ------------------------------------------------------------------ */
+/*  LOCAL STORAGE PERSISTENCE                                          */
+/*  Keeps signups, logins, shelves, and reading progress saved in the  */
+/*  browser so they survive a page refresh. Passwords are stored in    */
+/*  plain text here for simplicity — fine for a class project demo,    */
+/*  but never do this in a real production app.                       */
+/* ------------------------------------------------------------------ */
+
+function loadFromStorage(key, fallback) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveToStorage(key, value) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // localStorage can fail (private browsing, storage full, etc.) —
+    // the app still works, it just won't persist between visits.
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  DATA                                                               */
+/* ------------------------------------------------------------------ */
+
+const GENRE_STYLE = {
+  Fantasy:        { color: "#6B4226", icon: "\u2726" },
+  "Science Fiction": { color: "#2C4A52", icon: "\u25C8" },
+  Mystery:        { color: "#3B2F4A", icon: "\u2756" },
+  Romance:        { color: "#8C3B4A", icon: "\u2766" },
+  Nonfiction:     { color: "#4A5A3C", icon: "\u25A3" },
+  Classic:        { color: "#7A6A3E", icon: "\u03A9" },
+  Horror:         { color: "#241F1F", icon: "\u2726" },
+  Poetry:         { color: "#5C4A66", icon: "\u2767" },
+};
+const GENRES = Object.keys(GENRE_STYLE);
+
+const BOOKS = [
+  { id: "b1", title: "The Cartographer's Debt", author: "Iris Halloway", genre: "Fantasy", rating: 4.6, year: 2018, call: "F/822.6-H" },
+  { id: "b2", title: "Salt of the Ember King", author: "Dorian Vasse", genre: "Fantasy", rating: 4.3, year: 2021, call: "F/823.1-V" },
+  { id: "b3", title: "The Wren Gate Chronicles", author: "Iris Halloway", genre: "Fantasy", rating: 4.1, year: 2015, call: "F/822.9-H" },
+  { id: "b4", title: "Perihelion", author: "Nadia Okonkwo", genre: "Science Fiction", rating: 4.7, year: 2022, call: "SF/519.2-O" },
+  { id: "b5", title: "The Last Signal from Cerea", author: "Marcus Lindqvist", genre: "Science Fiction", rating: 4.2, year: 2019, call: "SF/519.8-L" },
+  { id: "b6", title: "Ninefold Drift", author: "Nadia Okonkwo", genre: "Science Fiction", rating: 4.4, year: 2023, call: "SF/519.4-O" },
+  { id: "b7", title: "The Quiet Ledger", author: "SimoneAchterberg", genre: "Mystery", rating: 4.5, year: 2020, call: "M/364.1-A" },
+  { id: "b8", title: "A Cipher for Mrs. Pryce", author: "Thomas Ainsley", genre: "Mystery", rating: 4.0, year: 2017, call: "M/364.7-A" },
+  { id: "b9", title: "The Ninth Witness", author: "Simone Achterberg", genre: "Mystery", rating: 4.3, year: 2022, call: "M/364.3-A" },
+  { id: "b10", title: "Every Bridge We Crossed", author: "Léa Fontaine", genre: "Romance", rating: 4.4, year: 2021, call: "R/813.9-F" },
+  { id: "b11", title: "The Orchard at Half Past June", author: "Rosalind Kerr", genre: "Romance", rating: 4.6, year: 2019, call: "R/813.5-K" },
+  { id: "b12", title: "Letters I Never Mailed You", author: "Léa Fontaine", genre: "Romance", rating: 4.2, year: 2016, call: "R/813.2-F" },
+  { id: "b13", title: "How Rivers Remember", author: "Priya Ramanathan", genre: "Nonfiction", rating: 4.8, year: 2020, call: "N/551.4-R" },
+  { id: "b14", title: "The Architecture of Silence", author: "Karl Beckenbauer", genre: "Nonfiction", rating: 4.3, year: 2018, call: "N/720.1-B" },
+  { id: "b15", title: "Working Hands: A History of Trades", author: "Priya Ramanathan", genre: "Nonfiction", rating: 4.1, year: 2014, call: "N/331.7-R" },
+  { id: "b16", title: "The Gilded Wardrobe", author: "Eleanor Ashcombe", genre: "Classic", rating: 4.7, year: 1931, call: "C/823.0-A" },
+  { id: "b17", title: "Winter Hollow House", author: "J. Rutherford Pell", genre: "Classic", rating: 4.5, year: 1948, call: "C/823.2-P" },
+  { id: "b18", title: "The Merchant's Daughter of Aveline", author: "Eleanor Ashcombe", genre: "Classic", rating: 4.4, year: 1927, call: "C/823.1-A" },
+  { id: "b19", title: "The Hollow Orchard", author: "Vesper Kane", genre: "Horror", rating: 4.2, year: 2020, call: "H/813.6-K" },
+  { id: "b20", title: "What the Cellar Keeps", author: "Vesper Kane", genre: "Horror", rating: 4.5, year: 2023, call: "H/813.8-K" },
+  { id: "b21", title: "The Thirteenth Guest", author: "Otis Marrow", genre: "Horror", rating: 4.0, year: 2017, call: "H/813.3-M" },
+  { id: "b22", title: "Salt & Marrow: Selected Verse", author: "Nadia Okonkwo", genre: "Poetry", rating: 4.6, year: 2022, call: "P/811.5-O" },
+  { id: "b23", title: "A Field Guide to Small Griefs", author: "Rosalind Kerr", genre: "Poetry", rating: 4.7, year: 2021, call: "P/811.9-K" },
+  { id: "b24", title: "Everything the Orchard Told Me", author: "Simone Achterberg", genre: "Poetry", rating: 4.3, year: 2019, call: "P/811.2-A" },
+];
+
+const CH_TEMPLATES = {
+  Fantasy: [
+    "The map had lied before, but never this precisely. {t} traced the border in candle-smoke ink, and the borderlands answered with a wind that smelled of iron and old promises.",
+    "Word of the debt reached the ember court before the messenger did. Something in the ash had already begun to remember its name.",
+    "Every kingdom keeps one door it does not speak of. This one opened from the inside, which was the part nobody had planned for.",
+    "By the time the third seal broke, it was no longer a question of stopping it — only of choosing who would be left to explain what happened.",
+  ],
+  "Science Fiction": [
+    "The signal repeated every eleven hours, patient as a tide, and {t} had stopped believing it was noise around the fourth day.",
+    "Perihelion meant the ship was closest to the star and furthest from anyone who could help. The crew treated both facts as unrelated.",
+    "Nine drift-markers, nine silences. The station's log recorded only that contact had been lost, never that it had been declined.",
+    "Somewhere between the last relay and the first colony, the data stopped agreeing with itself — and so, quietly, did the crew.",
+  ],
+  Mystery: [
+    "The ledger balanced to the cent, which was, {t} thought, the most suspicious thing about it.",
+    "Mrs. Pryce had left exactly one thing out of place, and it took three days to notice it was the clock.",
+    "Nine witnesses, nine versions of the same ten minutes. Only one of them had a reason to remember it wrong.",
+    "The case closed itself on paper long before it closed in the room where it had actually happened.",
+  ],
+  Romance: [
+    "{t} had crossed the bridge a hundred times without noticing it was the same bridge, until the day someone was waiting on the other side.",
+    "The orchard bloomed early that June, which everyone blamed on the weather and no one blamed on the two of them.",
+    "Some letters are never sent because they're finished. These were never sent because they weren't.",
+    "It turned out the hardest part wasn't falling — it was staying somewhere long enough to be found.",
+  ],
+  Nonfiction: [
+    "Rivers do not forget their old paths; they simply wait for permission to return to them. {t} spent a decade tracing that permission across three continents.",
+    "The building said nothing, which architects had long mistaken for having nothing to say.",
+    "Every trade carries a grammar of its own — a way hands learn to argue with material until the material agrees.",
+    "History rarely announces itself. Mostly it just keeps working, unnoticed, until someone asks who built the thing they're standing in.",
+  ],
+  Classic: [
+    "It was generally understood in that house that {t} would marry well, though no one had yet explained what well was meant to mean.",
+    "Winter arrived at Hollow House the way most important things arrived there — announced by the staff and denied by the family.",
+    "The merchant's daughter had inherited her father's ledgers and, less usefully, his conviction that he was always right.",
+    "There are silences that end a conversation, and there are silences that are the conversation. This house was built from the second kind.",
+  ],
+  Horror: [
+    "The orchard had been hollow for years before anyone admitted the trees were still counting something.",
+    "{t} told themselves the cellar door had always stuck. It had not always stuck.",
+    "Thirteen chairs, twelve guests. No one at the table wanted to be the one to point that out.",
+    "It wasn't the sound in the walls that was frightening. It was that the sound kept perfect, patient time.",
+  ],
+  Poetry: [
+    "a stanza on salt, on marrow, on what the body keeps / when the mind has agreed to forget",
+    "small griefs, catalogued like specimens — / pinned, labeled, never quite dead",
+    "the orchard told {t} everything, in the only language it had: / falling, and falling again",
+    "these are the field notes of an ordinary sorrow, / kept because someone should",
+  ],
+};
+
+function chapterText(book, idx) {
+  const pool = CH_TEMPLATES[book.genre] || CH_TEMPLATES.Classic;
+  const raw = pool[idx % pool.length];
+  return raw.replace("{t}", book.title.split(":")[0]);
+}
+
+/* ------------------------------------------------------------------ */
+/*  RECOMMENDATION ENGINE (content-based filtering)                    */
+/* ------------------------------------------------------------------ */
+
+function computeRecommendations(userLib, books) {
+  const weights = {};
+  const touched = new Set();
+  (userLib.finished || []).forEach((id) => {
+    const b = books.find((x) => x.id === id);
+    if (b) { weights[b.genre] = (weights[b.genre] || 0) + 3; touched.add(id); }
+  });
+  Object.keys(userLib.progress || {}).forEach((id) => {
+    const b = books.find((x) => x.id === id);
+    if (b) { weights[b.genre] = (weights[b.genre] || 0) + 2; touched.add(id); }
+  });
+  (userLib.favorites || []).forEach((id) => {
+    const b = books.find((x) => x.id === id);
+    if (b) { weights[b.genre] = (weights[b.genre] || 0) + 1.5; touched.add(id); }
+  });
+
+  const candidates = books.filter((b) => !touched.has(b.id));
+
+  if (Object.keys(weights).length === 0) {
+    return {
+      picks: [...candidates].sort((a, b) => b.rating - a.rating).slice(0, 6),
+      reason: "staff",
+    };
+  }
+
+  const topGenre = Object.entries(weights).sort((a, b) => b[1] - a[1])[0][0];
+  const scored = candidates.map((b) => ({
+    book: b,
+    score: (weights[b.genre] || 0) + b.rating / 10,
+  }));
+  scored.sort((a, b) => b.score - a.score);
+  return {
+    picks: scored.slice(0, 6).map((s) => s.book),
+    reason: topGenre,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/*  SMALL COMPONENTS                                                   */
+/* ------------------------------------------------------------------ */
+
+function Cover({ book, size = "normal" }) {
+  const s = GENRE_STYLE[book.genre];
+  return (
+    <div className="mgn-cover" style={{ background: `linear-gradient(160deg, ${s.color}, ${s.color}dd)` }}>
+      <div style={{ textAlign: "center", padding: 10, zIndex: 1 }}>
+        <div style={{ fontSize: size === "small" ? 18 : 26, opacity: 0.85 }}>{s.icon}</div>
+        <div className="disp" style={{ fontSize: size === "small" ? 11 : 13, fontWeight: 600, marginTop: 6, lineHeight: 1.25 }}>
+          {book.title.length > 26 && size === "small" ? book.title.slice(0, 24) + "\u2026" : book.title}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Stars({ rating }) {
+  const full = Math.round(rating);
+  return (
+    <span className="mono" style={{ fontSize: 12, color: "#B8894A" }} aria-label={`${rating} out of 5 stars`}>
+      {"\u2605".repeat(full)}{"\u2606".repeat(5 - full)} <span style={{ color: "#7A6A3E" }}>{rating.toFixed(1)}</span>
+    </span>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  AUTH                                                                */
+/* ------------------------------------------------------------------ */
+
+function AuthScreen({ users, onLogin, onSignup }) {
+  const [mode, setMode] = useState("login");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  function submit(e) {
+    e.preventDefault();
+    setError("");
+    if (mode === "login") {
+      const u = users.find((x) => x.email.toLowerCase() === email.trim().toLowerCase() && x.password === password);
+      if (!u) return setError("No membership matches that email and password.");
+      onLogin(u.id);
+    } else {
+      if (!name.trim() || !email.trim() || password.length < 4) {
+        return setError("Please fill in your name, email, and a password of at least 4 characters.");
+      }
+      if (users.some((x) => x.email.toLowerCase() === email.trim().toLowerCase())) {
+        return setError("An account with that email already exists — try logging in instead.");
+      }
+      onSignup({ name: name.trim(), email: email.trim(), password });
+    }
+  }
+
+  return (
+    <div className="mgn" style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div style={{ width: "100%", maxWidth: 920, display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 0 }} className="mgn-card">
+        <div style={{ background: "#1F3A2E", color: "#FBF7ED", padding: "44px 36px", display: "flex", flexDirection: "column", justifyContent: "space-between" }} className="mgn-hide-sm">
+          <div>
+            <div className="mono" style={{ fontSize: 11, letterSpacing: ".12em", color: "#B8894A", marginBottom: 14 }}>EST. FOR THE CURIOUS READER</div>
+            <h1 className="disp" style={{ fontSize: 42, lineHeight: 1.05, margin: 0, fontWeight: 600 }}>Marginalia</h1>
+            <p style={{ marginTop: 18, fontSize: 15, lineHeight: 1.6, color: "#CBD8CC", maxWidth: 320 }}>
+              A reading room that learns your shelf. Read, keep a record of what moved you, and let the catalog quietly build the next stack for you.
+            </p>
+          </div>
+          <div className="mono" style={{ fontSize: 11, color: "#8CA593", lineHeight: 1.8 }}>
+            24 titles &middot; 8 genres <br/>
+            content&#8209;based recommendation engine <br/>
+            no data leaves this session
+          </div>
+        </div>
+
+        <div style={{ padding: "44px 36px" }}>
+          <div style={{ display: "flex", gap: 0, marginBottom: 28, borderBottom: "1px solid #D9CBA6" }}>
+            <button onClick={() => { setMode("login"); setError(""); }} className="mgn-navlink" style={{ color: mode === "login" ? "#1F3A2E" : "#9C8B63", borderBottom: mode === "login" ? "2px solid #B8894A" : "2px solid transparent" }}>
+              Log In
+            </button>
+            <button onClick={() => { setMode("signup"); setError(""); }} className="mgn-navlink" style={{ color: mode === "signup" ? "#1F3A2E" : "#9C8B63", borderBottom: mode === "signup" ? "2px solid #B8894A" : "2px solid transparent" }}>
+              Join the Library
+            </button>
+          </div>
+
+          <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {mode === "signup" && (
+              <label style={{ display: "block" }}>
+                <span className="mono" style={{ fontSize: 11, color: "#7A6A3E" }}>FULL NAME</span>
+                <input className="mgn-input" style={{ marginTop: 5 }} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ada Okafor" />
+              </label>
+            )}
+            <label style={{ display: "block" }}>
+              <span className="mono" style={{ fontSize: 11, color: "#7A6A3E" }}>EMAIL</span>
+              <input className="mgn-input" style={{ marginTop: 5 }} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@college.edu" />
+            </label>
+            <label style={{ display: "block" }}>
+              <span className="mono" style={{ fontSize: 11, color: "#7A6A3E" }}>PASSWORD</span>
+              <input className="mgn-input" style={{ marginTop: 5 }} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="\u2022\u2022\u2022\u2022\u2022\u2022" />
+            </label>
+
+            {error && <div className="mono" style={{ fontSize: 12, color: "#A13D2B" }}>{error}</div>}
+
+            <button type="submit" className="mgn-btn brass" style={{ marginTop: 6 }}>
+              {mode === "login" ? "Enter the Reading Room" : "Create Membership Card"}
+            </button>
+          </form>
+
+          <div className="mono" style={{ fontSize: 11, color: "#9C8B63", marginTop: 22, lineHeight: 1.7 }}>
+            Try the demo card &mdash; demo@marginalia.edu / demo123
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  READING MODAL                                                      */
+/* ------------------------------------------------------------------ */
+
+function ReadingView({ book, progress, onAdvance, onClose, onFavorite, isFav }) {
+  const chapter = Math.min(Math.floor(progress / 25), 3);
+  const finished = progress >= 100;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(30,24,16,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
+      <div className="mgn-card mgn-scroll" style={{ width: "100%", maxWidth: 680, maxHeight: "88vh", overflowY: "auto", padding: 0 }}>
+        <div style={{ background: GENRE_STYLE[book.genre].color, color: "#F1E9D6", padding: "22px 28px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <div className="mono" style={{ fontSize: 10.5, letterSpacing: ".08em", opacity: .8 }}>{book.call}</div>
+            <h2 className="disp" style={{ margin: "6px 0 4px", fontSize: 24 }}>{book.title}</h2>
+            <div style={{ fontSize: 13.5, opacity: .85 }}>by {book.author} &middot; {book.genre} &middot; {book.year}</div>
+          </div>
+          <button onClick={onClose} className="mono" style={{ background: "none", border: "none", color: "#F1E9D6", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>&times;</button>
+        </div>
+
+        <div style={{ padding: "26px 28px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span className="mono" style={{ fontSize: 11, color: "#7A6A3E" }}>
+              {finished ? "FINISHED" : `CHAPTER ${chapter + 1} OF 4`}
+            </span>
+            <span className="mono" style={{ fontSize: 11, color: "#7A6A3E" }}>{progress}%</span>
+          </div>
+          <div className="mgn-progress-track"><div className="mgn-progress-fill" style={{ width: `${progress}%` }} /></div>
+
+          <p style={{ marginTop: 22, fontSize: 16.5, lineHeight: 1.85, color: "#2B2118" }}>
+            {chapterText(book, chapter)}
+          </p>
+
+          {finished && (
+            <div className="mgn-stamp" style={{ marginTop: 14 }}>Shelved &middot; Read Complete</div>
+          )}
+
+          <div style={{ display: "flex", gap: 10, marginTop: 26, flexWrap: "wrap" }}>
+            {!finished && (
+              <button className="mgn-btn brass" onClick={onAdvance}>
+                {chapter < 3 ? "Read Next Chapter \u2192" : "Finish Book"}
+              </button>
+            )}
+            <button className="mgn-btn ghost" onClick={onFavorite}>
+              {isFav ? "\u2605 On Your Shelf" : "\u2606 Add to Shelf"}
+            </button>
+            <button className="mgn-btn ghost" onClick={onClose}>Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  BOOK CARD                                                          */
+/* ------------------------------------------------------------------ */
+
+function BookCard({ book, onRead, onFavorite, isFav, progress, reason }) {
+  return (
+    <div className="mgn-card" style={{ display: "flex", flexDirection: "column" }}>
+      <div style={{ position: "relative" }}>
+        <Cover book={book} />
+        <button
+          onClick={onFavorite}
+          title={isFav ? "Remove from shelf" : "Add to shelf"}
+          style={{ position: "absolute", top: 8, right: 8, background: "rgba(251,247,237,.9)", border: "1px solid #C9AE86", width: 28, height: 28, cursor: "pointer", fontSize: 14 }}
+        >
+          {isFav ? "\u2605" : "\u2606"}
+        </button>
+      </div>
+      <div style={{ padding: "12px 14px 14px", display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+        {reason && <div className="mgn-stamp" style={{ alignSelf: "flex-start", fontSize: 9.5 }}>Recommended</div>}
+        <div className="mono" style={{ fontSize: 10, color: "#9C8B63" }}>{book.call}</div>
+        <h3 className="disp" style={{ fontSize: 15.5, margin: 0, lineHeight: 1.3 }}>{book.title}</h3>
+        <div style={{ fontSize: 12.5, color: "#5C4A2E" }}>{book.author}</div>
+        <Stars rating={book.rating} />
+        {progress > 0 && (
+          <div style={{ marginTop: 2 }}>
+            <div className="mgn-progress-track"><div className="mgn-progress-fill" style={{ width: `${progress}%` }} /></div>
+            <div className="mono" style={{ fontSize: 9.5, color: "#9C8B63", marginTop: 3 }}>{progress >= 100 ? "Finished" : `${progress}% read`}</div>
+          </div>
+        )}
+        <button className="mgn-btn" style={{ marginTop: "auto", alignSelf: "flex-start" }} onClick={onRead}>
+          {progress >= 100 ? "Read Again" : progress > 0 ? "Continue Reading" : "Read"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  MAIN APP                                                           */
+/* ------------------------------------------------------------------ */
+
+function App() {
+  const [users, setUsers] = useState(() =>
+    loadFromStorage("marginalia_users", [
+      { id: "demo", name: "Demo Reader", email: "demo@marginalia.edu", password: "demo123" },
+    ])
+  );
+  const [library, setLibrary] = useState(() =>
+    loadFromStorage("marginalia_library", { demo: { finished: [], progress: {}, favorites: [] } })
+  );
+  const [currentUserId, setCurrentUserId] = useState(() => loadFromStorage("marginalia_session", null));
+  const [view, setView] = useState("catalog");
+
+  useEffect(() => saveToStorage("marginalia_users", users), [users]);
+  useEffect(() => saveToStorage("marginalia_library", library), [library]);
+  useEffect(() => saveToStorage("marginalia_session", currentUserId), [currentUserId]);
+  const [activeBookId, setActiveBookId] = useState(null);
+  const [search, setSearch] = useState("");
+  const [genreFilter, setGenreFilter] = useState("All");
+  const [sortBy, setSortBy] = useState("title");
+
+  const currentUser = users.find((u) => u.id === currentUserId);
+  const userLib = library[currentUserId] || { finished: [], progress: {}, favorites: [] };
+
+  function handleLogin(id) { setCurrentUserId(id); setView("catalog"); }
+
+  function handleSignup({ name, email, password }) {
+    const id = "u" + Date.now();
+    setUsers((prev) => [...prev, { id, name, email, password }]);
+    setLibrary((prev) => ({ ...prev, [id]: { finished: [], progress: {}, favorites: [] } }));
+    setCurrentUserId(id);
+    setView("catalog");
+  }
+
+  function handleLogout() { setCurrentUserId(null); setActiveBookId(null); setView("catalog"); }
+
+  function updateUserLib(fn) {
+    setLibrary((prev) => ({ ...prev, [currentUserId]: fn(prev[currentUserId] || { finished: [], progress: {}, favorites: [] }) }));
+  }
+
+  function toggleFavorite(bookId) {
+    updateUserLib((lib) => {
+      const has = lib.favorites.includes(bookId);
+      return { ...lib, favorites: has ? lib.favorites.filter((x) => x !== bookId) : [...lib.favorites, bookId] };
+    });
+  }
+
+  function advanceProgress(bookId) {
+    updateUserLib((lib) => {
+      const cur = lib.progress[bookId] || 0;
+      const next = Math.min(100, cur + 25);
+      const newProgress = { ...lib.progress, [bookId]: next };
+      let finished = lib.finished;
+      if (next >= 100 && !finished.includes(bookId)) finished = [...finished, bookId];
+      return { ...lib, progress: newProgress, finished };
+    });
+  }
+
+  const recs = useMemo(() => computeRecommendations(userLib, BOOKS), [userLib]);
+
+  const filtered = useMemo(() => {
+    let list = BOOKS.filter((b) => {
+      const matchesSearch = (b.title + " " + b.author).toLowerCase().includes(search.toLowerCase());
+      const matchesGenre = genreFilter === "All" || b.genre === genreFilter;
+      return matchesSearch && matchesGenre;
+    });
+    if (sortBy === "title") list = [...list].sort((a, b) => a.title.localeCompare(b.title));
+    if (sortBy === "rating") list = [...list].sort((a, b) => b.rating - a.rating);
+    if (sortBy === "newest") list = [...list].sort((a, b) => b.year - a.year);
+    return list;
+  }, [search, genreFilter, sortBy]);
+
+  const readingNow = BOOKS.filter((b) => {
+    const p = userLib.progress[b.id];
+    return p > 0 && p < 100;
+  });
+  const finishedBooks = BOOKS.filter((b) => userLib.finished.includes(b.id));
+  const favoriteBooks = BOOKS.filter((b) => userLib.favorites.includes(b.id));
+
+  const genreCounts = {};
+  finishedBooks.forEach((b) => (genreCounts[b.genre] = (genreCounts[b.genre] || 0) + 1));
+  const favoriteGenre = Object.entries(genreCounts).sort((a, b) => b[1] - a[1])[0];
+
+  if (!currentUser) {
+    return <div className="mgn"><AuthScreen users={users} onLogin={handleLogin} onSignup={handleSignup} /></div>;
+  }
+
+  const activeBook = BOOKS.find((b) => b.id === activeBookId);
+
+  const NAV_ITEMS = [
+    ["catalog", "Catalog"],
+    ["foryou", "For You"],
+    ["reading", "Currently Reading"],
+    ["profile", "Profile"],
+  ];
+
+  return (
+    <div className="mgn">
+      <div className="mgn-nav" style={{ position: "sticky", top: 0, zIndex: 30 }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "14px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <div className="disp" style={{ fontSize: 20, fontWeight: 600 }}>Marginalia</div>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {NAV_ITEMS.map(([key, label]) => (
+              <button key={key} onClick={() => setView(key)} className={"mgn-navlink" + (view === key ? " active" : "")}>{label}</button>
+            ))}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span className="mono" style={{ fontSize: 11, color: "#CBD8CC" }}>{currentUser.name}</span>
+            <button className="mgn-btn ghost" style={{ color: "#FBF7ED", borderColor: "#FBF7ED" }} onClick={handleLogout}>Sign Out</button>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 20px 60px" }}>
+
+        {view === "catalog" && (
+          <>
+            <h1 className="disp" style={{ fontSize: 28, marginBottom: 4 }}>The Catalog</h1>
+            <p className="mono" style={{ fontSize: 11.5, color: "#7A6A3E", marginBottom: 20 }}>{filtered.length} of {BOOKS.length} titles</p>
+
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+              <input className="mgn-input" style={{ maxWidth: 280 }} placeholder="Search title or author\u2026" value={search} onChange={(e) => setSearch(e.target.value)} />
+              <select className="mgn-input" style={{ maxWidth: 180 }} value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                <option value="title">Sort: Title</option>
+                <option value="rating">Sort: Rating</option>
+                <option value="newest">Sort: Newest</option>
+              </select>
+            </div>
+
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 24 }}>
+              <button className={"mgn-chip" + (genreFilter === "All" ? " active" : "")} onClick={() => setGenreFilter("All")}>All</button>
+              {GENRES.map((g) => (
+                <button key={g} className={"mgn-chip" + (genreFilter === g ? " active" : "")} onClick={() => setGenreFilter(g)}>{g}</button>
+              ))}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 16 }}>
+              {filtered.map((b) => (
+                <BookCard key={b.id} book={b} onRead={() => setActiveBookId(b.id)} onFavorite={() => toggleFavorite(b.id)}
+                  isFav={userLib.favorites.includes(b.id)} progress={userLib.progress[b.id] || 0} />
+              ))}
+              {filtered.length === 0 && <p style={{ color: "#7A6A3E" }}>No titles match that search. Try a different word or clear the genre filter.</p>}
+            </div>
+          </>
+        )}
+
+        {view === "foryou" && (
+          <>
+            <h1 className="disp" style={{ fontSize: 28, marginBottom: 4 }}>For You</h1>
+            <p style={{ fontSize: 14, color: "#5C4A2E", marginBottom: 24, maxWidth: 560 }}>
+              {recs.reason === "staff"
+                ? "You haven't read anything yet, so here are the catalog's highest-rated titles across every shelf."
+                : `Built from what's on your shelf — you gravitate toward ${recs.reason}, so the engine weighted these higher.`}
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 16 }}>
+              {recs.picks.map((b) => (
+                <BookCard key={b.id} book={b} onRead={() => setActiveBookId(b.id)} onFavorite={() => toggleFavorite(b.id)}
+                  isFav={userLib.favorites.includes(b.id)} progress={userLib.progress[b.id] || 0} reason />
+              ))}
+            </div>
+          </>
+        )}
+
+        {view === "reading" && (
+          <>
+            <h1 className="disp" style={{ fontSize: 28, marginBottom: 20 }}>Currently Reading</h1>
+            {readingNow.length === 0 ? (
+              <p style={{ color: "#7A6A3E" }}>Nothing in progress. Open a book from the Catalog to start a chapter.</p>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 16 }}>
+                {readingNow.map((b) => (
+                  <BookCard key={b.id} book={b} onRead={() => setActiveBookId(b.id)} onFavorite={() => toggleFavorite(b.id)}
+                    isFav={userLib.favorites.includes(b.id)} progress={userLib.progress[b.id] || 0} />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {view === "profile" && (
+          <>
+            <h1 className="disp" style={{ fontSize: 28, marginBottom: 20 }}>Your Membership Card</h1>
+            <div className="mgn-card" style={{ padding: 24, marginBottom: 28, maxWidth: 480 }}>
+              <div className="mono" style={{ fontSize: 10.5, color: "#9C8B63" }}>MEMBER</div>
+              <div className="disp" style={{ fontSize: 20, margin: "4px 0 14px" }}>{currentUser.name}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+                <div><div className="disp" style={{ fontSize: 22 }}>{finishedBooks.length}</div><div className="mono" style={{ fontSize: 10, color: "#7A6A3E" }}>FINISHED</div></div>
+                <div><div className="disp" style={{ fontSize: 22 }}>{readingNow.length}</div><div className="mono" style={{ fontSize: 10, color: "#7A6A3E" }}>IN PROGRESS</div></div>
+                <div><div className="disp" style={{ fontSize: 22 }}>{favoriteBooks.length}</div><div className="mono" style={{ fontSize: 10, color: "#7A6A3E" }}>ON SHELF</div></div>
+              </div>
+              {favoriteGenre && (
+                <div style={{ marginTop: 16 }}><span className="mgn-stamp">Favors {favoriteGenre[0]}</span></div>
+              )}
+            </div>
+
+            <h2 className="disp" style={{ fontSize: 19, marginBottom: 12 }}>Your Shelf</h2>
+            {favoriteBooks.length === 0 ? (
+              <p style={{ color: "#7A6A3E" }}>Add books to your shelf from the Catalog or a reading view.</p>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 16 }}>
+                {favoriteBooks.map((b) => (
+                  <BookCard key={b.id} book={b} onRead={() => setActiveBookId(b.id)} onFavorite={() => toggleFavorite(b.id)}
+                    isFav={true} progress={userLib.progress[b.id] || 0} />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {activeBook && (
+        <ReadingView
+          book={activeBook}
+          progress={userLib.progress[activeBook.id] || 0}
+          onAdvance={() => advanceProgress(activeBook.id)}
+          onClose={() => setActiveBookId(null)}
+          onFavorite={() => toggleFavorite(activeBook.id)}
+          isFav={userLib.favorites.includes(activeBook.id)}
+        />
+      )}
+    </div>
+  );
+}
+
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>
